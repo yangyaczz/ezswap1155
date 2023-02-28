@@ -39,12 +39,20 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
         bool isRouter,
         address routerCaller,
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        uint256 protocolFee,
+        uint256[] memory operatorProtocolFees
     ) internal override {
         require(msg.value == 0, "ERC20 pair");
 
         ERC20 _token = token();
         address _assetRecipient = getAssetRecipient();
+
+        for (uint256 i = 0; i < operatorProtocolFees.length; ) {
+            inputAmount -= operatorProtocolFees[i];
+            unchecked {
+                ++i;
+            }
+        }
 
         if (isRouter) {
             // Verify if router is allowed
@@ -65,7 +73,6 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
                 inputAmount - protocolFee,
                 pairVariant()
             );
-
             // Verify token transfer (protect pair against malicious router)
             require(
                 _token.balanceOf(_assetRecipient) - beforeBalance ==
@@ -103,6 +110,55 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
     }
 
     /// @inheritdoc LSSVMPair
+    function _payOperatorProtocolFee(
+        bool isRouter,
+        address routerCaller,
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
+    ) internal override {
+        ERC20 _token = token();
+        if (isRouter) {
+            // Verify if router is allowed
+            LSSVMRouter router = LSSVMRouter(payable(msg.sender));
+
+            for (uint256 i = 0; i < operatorProtocolFeeRecipients.length; ) {
+                address operatorProtocolFeeRecipient = operatorProtocolFeeRecipients[i];
+                uint256 operatorProtocolFeeMultiplier = operatorProtocolFees[i];
+
+                if(operatorProtocolFeeMultiplier > 0){
+                    router.pairTransferERC20From(
+                        _token,
+                        routerCaller,
+                        operatorProtocolFeeRecipient,
+                        operatorProtocolFeeMultiplier,
+                        pairVariant()
+                    );
+                }
+                unchecked {
+                 ++i;
+                }
+            }
+        } else {
+            // Take operator protocol fee (if it exists)
+            for (uint256 i = 0; i < operatorProtocolFeeRecipients.length; ) {
+                address operatorProtocolFeeRecipient = operatorProtocolFeeRecipients[i];
+                uint256 operatorProtocolFeeMultiplier = operatorProtocolFees[i];
+                if(operatorProtocolFeeMultiplier > 0){
+                    _token.safeTransferFrom(
+                        msg.sender,
+                        operatorProtocolFeeRecipient,
+                        operatorProtocolFeeMultiplier
+                    );
+                }
+                unchecked {
+                 ++i;
+                }
+            }
+        }
+        
+    }
+
+    /// @inheritdoc LSSVMPair
     function _refundTokenToSender(uint256 inputAmount) internal override {
         // Do nothing since we transferred the exact input amount
     }
@@ -123,6 +179,24 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
             }
             if (protocolFee > 0) {
                 _token.safeTransfer(address(_factory), protocolFee); 
+            }
+        }
+    }
+
+    /// @inheritdoc LSSVMPair
+    function _payOperatorProtocolFeeFromPair(
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
+    ) internal override {
+        ERC20 _token = token();
+        for (uint256 i = 0; i < operatorProtocolFeeRecipients.length; ) {
+            address operatorProtocolFeeRecipient = operatorProtocolFeeRecipients[i];
+            uint256 operatorProtocolFee = operatorProtocolFees[i];
+            if(operatorProtocolFee > 0){
+                _token.safeTransfer(operatorProtocolFeeRecipient, operatorProtocolFee); 
+            }
+            unchecked {
+                ++i;
             }
         }
     }

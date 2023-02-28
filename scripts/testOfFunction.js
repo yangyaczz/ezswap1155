@@ -134,8 +134,6 @@ async function main() {
     //   [1473590,1650051,1650055], { value: ethers.utils.parseEther("0.100401493975903614")}
     // )
     // console.log(createtradelpool)
-
-  
 }
 
 // We recommend this pattern to be able to use async/await everywhere

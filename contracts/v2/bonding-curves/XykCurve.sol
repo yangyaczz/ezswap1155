@@ -49,108 +49,135 @@ contract XykCurve is ICurve, CurveErrorCodes {
         @dev See {ICurve-getBuyInfo}
      */
     function getBuyInfo(
-        uint128 spotPrice,
-        uint128 delta,
-        uint256 numItems,
-        uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        CurveErrorCodes.BuyParam memory param
     )
         external
         pure
         override
         returns (
-            Error error,
-            uint128 newSpotPrice,
-            uint128 newDelta,
-            uint256 inputValue,
-            uint256 protocolFee
+            CurveErrorCodes.BuyResult memory result
         )
     {
-        if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+        if (param.numItems == 0) {
+            return result;
         }
 
         // get the pair's virtual nft and eth/erc20 reserves
-        uint256 tokenBalance = spotPrice;
-        uint256 nftBalance = delta;
+        uint256 tokenBalance = param.spotPrice;
+        uint256 nftBalance = param.delta;
 
         // If numItems is too large, we will get divide by zero error
-        if (numItems >= nftBalance) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+        if (param.numItems >= nftBalance) {
+            return result;
         }
 
         // calculate the amount to send in
-        uint256 inputValueWithoutFee = (numItems * tokenBalance) /
-            (nftBalance - numItems);
+        uint256 inputValueWithoutFee = (param.numItems * tokenBalance) /
+            (nftBalance - param.numItems);
 
         // add the fees to the amount to send in
-        protocolFee = inputValueWithoutFee.fmul(
-            protocolFeeMultiplier,
+        result.protocolFee = inputValueWithoutFee.fmul(
+            param.protocolFeeMultiplier,
             FixedPointMathLib.WAD
         );
         uint256 fee = inputValueWithoutFee.fmul(
-            feeMultiplier,
+            param.feeMultiplier,
             FixedPointMathLib.WAD
         );
-        inputValue = inputValueWithoutFee + fee + protocolFee;
+
+        result.operatorProtocolFees = new uint256[](param.operatorProtocolFeeMultipliers.length);
+        
+        for (uint256 i = 0; i < result.operatorProtocolFees.length; ) {
+            result.operatorProtocolFees[i] = result.inputValue.fmul(
+                param.operatorProtocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+
+            unchecked {
+                ++i;
+            }
+        }
+        
+        result.inputValue = inputValueWithoutFee + fee + result.protocolFee;
+
+        for (uint256 i = 0; i < result.operatorProtocolFees.length; ) {
+            result.inputValue += result.operatorProtocolFees[i];
+
+            unchecked {
+                ++i;
+            }
+        }
 
         // set the new virtual reserves
-        newSpotPrice = uint128(spotPrice + inputValueWithoutFee); // token reserve
-        newDelta = uint128(nftBalance - numItems); // nft reserve
+        result.newSpotPrice = uint128(param.spotPrice + inputValueWithoutFee); // token reserve
+        result.newDelta = uint128(nftBalance - param.numItems); // nft reserve
 
         // If we got all the way here, no math error happened
-        error = Error.OK;
+        result.error = Error.OK;
     }
 
     /**
         @dev See {ICurve-getSellInfo}
      */
     function getSellInfo(
-        uint128 spotPrice,
-        uint128 delta,
-        uint256 numItems,
-        uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        CurveErrorCodes.SellParam memory param
     )
         external
         pure
         override
         returns (
-            Error error,
-            uint128 newSpotPrice,
-            uint128 newDelta,
-            uint256 outputValue,
-            uint256 protocolFee
+            CurveErrorCodes.SellResult memory result
         )
     {
-        if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+        if (param.numItems == 0) {
+            return result;
         }
 
         // get the pair's virtual nft and eth/erc20 balance
-        uint256 tokenBalance = spotPrice;
-        uint256 nftBalance = delta;
+        uint256 tokenBalance = param.spotPrice;
+        uint256 nftBalance = param.delta;
 
         // calculate the amount to send out
-        uint256 outputValueWithoutFee = (numItems * tokenBalance) /
-            (nftBalance + numItems);
+        uint256 outputValueWithoutFee = (param.numItems * tokenBalance) /
+            (nftBalance + param.numItems);
 
         // subtract fees from amount to send out
-        protocolFee = outputValueWithoutFee.fmul(
-            protocolFeeMultiplier,
+        result.protocolFee = outputValueWithoutFee.fmul(
+            param.protocolFeeMultiplier,
             FixedPointMathLib.WAD
         );
         uint256 fee = outputValueWithoutFee.fmul(
-            feeMultiplier,
+            param.feeMultiplier,
             FixedPointMathLib.WAD
         );
-        outputValue = outputValueWithoutFee - fee - protocolFee;
+
+        result.operatorProtocolFees = new uint256[](param.operatorProtocolFeeMultipliers.length);
+
+        for (uint256 i = 0; i < result.operatorProtocolFees.length; ) {
+            result.operatorProtocolFees[i] = result.outputValue.fmul(
+                param.operatorProtocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        result.outputValue = outputValueWithoutFee - fee - result.protocolFee;
+
+        for (uint256 i = 0; i < result.operatorProtocolFees.length; ) {
+            result.outputValue -= result.operatorProtocolFees[i];
+            unchecked {
+                ++i;
+            }
+        }
 
         // set the new virtual reserves
-        newSpotPrice = uint128(spotPrice - outputValueWithoutFee); // token reserve
-        newDelta = uint128(nftBalance + numItems); // nft reserve
+        result.newSpotPrice = uint128(param.spotPrice - outputValueWithoutFee); // token reserve
+        result.newDelta = uint128(nftBalance + param.numItems); // nft reserve
 
         // If we got all the way here, no math error happened
-        error = Error.OK;
+        result.error = Error.OK;
     }
 }

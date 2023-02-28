@@ -26,6 +26,32 @@ abstract contract LSSVMPair is
         TRADE
     }
 
+    /**
+        @return protocolFee The amount of tokens to send as protocol fee
+        @return inputAmount The amount of tokens total tokens receive
+        @return operatorProtocolFeeRecipients operator protocol fee recipients
+        @return operatorProtocolFees operator protocol fees
+     */
+    struct CalculateBuyResult {
+        uint256 protocolFee;
+        uint256 inputAmount;
+        address[] operatorProtocolFeeRecipients;
+        uint256[] operatorProtocolFees;
+    }
+
+    /**
+        @return protocolFee The amount of tokens to send as protocol fee
+        @return outputAmount The amount of tokens total tokens receive
+        @return operatorProtocolFeeRecipients operator protocol fee recipients
+        @return operatorProtocolFees operator protocol fees
+     */
+    struct CalculateSellResult {
+        uint256 protocolFee;
+        uint256 outputAmount;
+        address[] operatorProtocolFeeRecipients;
+        uint256[] operatorProtocolFees;
+    }
+
     // 90%, must <= 1 - MAX_PROTOCOL_FEE (set in LSSVMPairFactory)
     uint256 internal constant MAX_FEE = 0.90e18;
 
@@ -137,7 +163,6 @@ abstract contract LSSVMPair is
         ILSSVMPairFactoryLike _factory = factory();
         ICurve _bondingCurve = bondingCurve();
         IERC721 _nft = nft();
-
         // Input validation
         {
             PoolType _poolType = poolType();
@@ -152,20 +177,28 @@ abstract contract LSSVMPair is
         }
 
         // Call bonding curve for pricing information
-        uint256 protocolFee;
-        (protocolFee, inputAmount) = _calculateBuyInfoAndUpdatePoolParams(
+        CalculateBuyResult memory calculateBuyResult = _calculateBuyInfoAndUpdatePoolParams(
             numNFTs,
             maxExpectedTokenInput,
             _bondingCurve,
             _factory
         );
 
+        inputAmount = calculateBuyResult.inputAmount;
+        
         _pullTokenInputAndPayProtocolFee(
             inputAmount,
             isRouter,
             routerCaller,
             _factory,
-            protocolFee
+            calculateBuyResult.protocolFee,
+            calculateBuyResult.operatorProtocolFees
+        );
+        _payOperatorProtocolFee(
+            isRouter,
+            routerCaller,
+            calculateBuyResult.operatorProtocolFees,
+            calculateBuyResult.operatorProtocolFeeRecipients
         );
 
         _sendAnyNFTsToRecipient(_nft, nftRecipient, numNFTs);
@@ -210,22 +243,30 @@ abstract contract LSSVMPair is
             );
             require((nftIds.length > 0), "Must ask for > 0 NFTs");
         }
-
         // Call bonding curve for pricing information
-        uint256 protocolFee;
-        (protocolFee, inputAmount) = _calculateBuyInfoAndUpdatePoolParams(
+        CalculateBuyResult memory calculateBuyResult = _calculateBuyInfoAndUpdatePoolParams(
             nftIds.length,
             maxExpectedTokenInput,
             _bondingCurve,
             _factory
         );
 
+        inputAmount = calculateBuyResult.inputAmount;
+
         _pullTokenInputAndPayProtocolFee(
             inputAmount,
             isRouter,
             routerCaller,
             _factory,
-            protocolFee
+            calculateBuyResult.protocolFee,
+            calculateBuyResult.operatorProtocolFees
+        );
+
+        _payOperatorProtocolFee(
+            isRouter,
+            routerCaller,
+            calculateBuyResult.operatorProtocolFees,
+            calculateBuyResult.operatorProtocolFeeRecipients
         );
 
         _sendSpecificNFTsToRecipient(nft(), nftRecipient, nftIds);
@@ -268,25 +309,28 @@ abstract contract LSSVMPair is
             );
             require(nftIds.length > 0, "Must ask for > 0 NFTs");
         }
-
         // Call bonding curve for pricing information
-        uint256 protocolFee;
-        (protocolFee, outputAmount) = _calculateSellInfoAndUpdatePoolParams(
+
+        CalculateSellResult memory calculateSellResult = _calculateSellInfoAndUpdatePoolParams(
             nftIds.length,
             minExpectedTokenOutput,
             _bondingCurve,
             _factory
         );
 
+        outputAmount = calculateSellResult.outputAmount;
+        
         _sendTokenOutput(tokenRecipient, outputAmount);
 
-        _payProtocolFeeFromPair(_factory, protocolFee);
+        _payProtocolFeeFromPair(_factory, calculateSellResult.protocolFee);
+
+        _payOperatorProtocolFeeFromPair(calculateSellResult.operatorProtocolFees,calculateSellResult.operatorProtocolFeeRecipients);
 
         _takeNFTsFromSender(nft(), nftIds, _factory, isRouter, routerCaller);
 
         emit SwapNFTInPair();
     }
-
+    
     /**
      * View functions
      */
@@ -299,25 +343,33 @@ abstract contract LSSVMPair is
         external
         view
         returns (
-            CurveErrorCodes.Error error,
-            uint256 newSpotPrice,
-            uint256 newDelta,
-            uint256 inputAmount,
-            uint256 protocolFee
+            CurveErrorCodes.BuyResult memory result
         )
     {
-        (
-            error,
-            newSpotPrice,
-            newDelta,
-            inputAmount,
-            protocolFee
-        ) = bondingCurve().getBuyInfo(
-            spotPrice,
-            delta,
-            numNFTs,
-            fee,
-            factory().protocolFeeMultiplier()
+        ILSSVMPairFactoryLike _factory = factory();
+        IERC721 _nft = nft();
+
+        address[] memory nftOperators = _factory.getNftOperators(address(_nft));
+        uint256[] memory operatorProtocolFeeMultipliers = new uint256[](nftOperators.length);
+
+        for (uint256 i = 0; i < nftOperators.length; ) {
+            address operator = nftOperators[i];
+            operatorProtocolFeeMultipliers[i] = _factory.operatorProtocolFeeMultipliers(address(_nft),operator);
+            
+            unchecked {
+                ++i;
+            }
+        }
+        
+        result = bondingCurve().getBuyInfo(
+            CurveErrorCodes.BuyParam({
+                spotPrice: spotPrice,
+                delta: delta,
+                numItems: numNFTs,
+                feeMultiplier: fee,
+                protocolFeeMultiplier: _factory.protocolFeeMultiplier(),
+                operatorProtocolFeeMultipliers: operatorProtocolFeeMultipliers
+            })
         );
     }
 
@@ -329,26 +381,36 @@ abstract contract LSSVMPair is
         external
         view
         returns (
-            CurveErrorCodes.Error error,
-            uint256 newSpotPrice,
-            uint256 newDelta,
-            uint256 outputAmount,
-            uint256 protocolFee
+            CurveErrorCodes.SellResult memory result
         )
     {
-        (
-            error,
-            newSpotPrice,
-            newDelta,
-            outputAmount,
-            protocolFee
-        ) = bondingCurve().getSellInfo(
-            spotPrice,
-            delta,
-            numNFTs,
-            fee,
-            factory().protocolFeeMultiplier()
+        ILSSVMPairFactoryLike _factory = factory();
+        IERC721 _nft = nft();
+
+        address[] memory nftOperators = _factory.getNftOperators(address(_nft));
+        uint256[] memory operatorProtocolFeeMultipliers = new uint256[](nftOperators.length);
+
+        for (uint256 i = 0; i < nftOperators.length; ) {
+            address operator = nftOperators[i];
+            operatorProtocolFeeMultipliers[i] = _factory.operatorProtocolFeeMultipliers(address(_nft),operator);
+            
+            unchecked {
+                ++i;
+            }
+        }
+
+        result= bondingCurve().getSellInfo(
+            CurveErrorCodes.SellParam({
+                spotPrice: spotPrice,
+                delta: delta,
+                numItems: numNFTs,
+                feeMultiplier: fee,
+                protocolFeeMultiplier: _factory.protocolFeeMultiplier(),
+                operatorProtocolFeeMultipliers: operatorProtocolFeeMultipliers
+            })
         );
+
+        
     }
 
     /**
@@ -447,58 +509,74 @@ abstract contract LSSVMPair is
         @param numNFTs The amount of NFTs to purchase from the pair
         @param maxExpectedTokenInput The maximum acceptable cost from the sender. If the actual
         amount is greater than this value, the transaction will be reverted.
-        @param protocolFee The percentage of protocol fee to be taken, as a percentage
-        @return protocolFee The amount of tokens to send as protocol fee
-        @return inputAmount The amount of tokens total tokens receive
+        @param _bondingCurve bondingCurve
+        @param _factory factory
+        @return calculateBuyResult calculate buy result
      */
     function _calculateBuyInfoAndUpdatePoolParams(
         uint256 numNFTs,
         uint256 maxExpectedTokenInput,
         ICurve _bondingCurve,
         ILSSVMPairFactoryLike _factory
-    ) internal returns (uint256 protocolFee, uint256 inputAmount) {
-        CurveErrorCodes.Error error;
+    ) internal returns (
+        CalculateBuyResult memory calculateBuyResult
+    ) {
         // Save on 2 SLOADs by caching
         uint128 currentSpotPrice = spotPrice;
-        uint128 newSpotPrice;
         uint128 currentDelta = delta;
-        uint128 newDelta;
-        (
-            error,
-            newSpotPrice,
-            newDelta,
-            inputAmount,
-            protocolFee
-        ) = _bondingCurve.getBuyInfo(
-            currentSpotPrice,
-            currentDelta,
-            numNFTs,
-            fee,
-            _factory.protocolFeeMultiplier()
+
+        IERC721 _nft = nft();
+
+        address[] memory nftOperators = _factory.getNftOperators(address(_nft));
+        uint256[] memory operatorProtocolFeeMultipliers = new uint256[](nftOperators.length);
+        calculateBuyResult.operatorProtocolFeeRecipients = new address[](nftOperators.length);
+
+        for (uint256 i = 0; i < nftOperators.length; ) {
+            operatorProtocolFeeMultipliers[i] = _factory.operatorProtocolFeeMultipliers(address(_nft), nftOperators[i]);
+            calculateBuyResult.operatorProtocolFeeRecipients[i] = _factory.operatorProtocolFeeRecipients(address(_nft), nftOperators[i]);
+            
+            unchecked {
+                ++i;
+            }
+        }
+        
+        CurveErrorCodes.BuyResult memory result = _bondingCurve.getBuyInfo(
+            CurveErrorCodes.BuyParam({
+                spotPrice: currentSpotPrice,
+                delta: currentDelta,
+                numItems: numNFTs,
+                feeMultiplier: fee,
+                protocolFeeMultiplier: _factory.protocolFeeMultiplier(),
+                operatorProtocolFeeMultipliers: operatorProtocolFeeMultipliers
+            })
         );
 
+        calculateBuyResult.inputAmount= result.inputValue;
+        calculateBuyResult.protocolFee = result.protocolFee;
+        calculateBuyResult.operatorProtocolFees = result.operatorProtocolFees;
+
         // Revert if bonding curve had an error
-        if (error != CurveErrorCodes.Error.OK) {
-            revert BondingCurveError(error);
+        if (result.error != CurveErrorCodes.Error.OK) {
+            revert BondingCurveError(result.error);
         }
 
         // Revert if input is more than expected
-        require(inputAmount <= maxExpectedTokenInput, "In too many tokens");
+        require(calculateBuyResult.inputAmount <= maxExpectedTokenInput, "In too many tokens");
 
         // Consolidate writes to save gas
-        if (currentSpotPrice != newSpotPrice || currentDelta != newDelta) {
-            spotPrice = newSpotPrice;
-            delta = newDelta;
+        if (currentSpotPrice != result.newSpotPrice || currentDelta != result.newDelta) {
+            spotPrice = result.newSpotPrice;
+            delta = result.newDelta;
         }
 
         // Emit spot price update if it has been updated
-        if (currentSpotPrice != newSpotPrice) {
-            emit SpotPriceUpdate(newSpotPrice);
+        if (currentSpotPrice != result.newSpotPrice) {
+            emit SpotPriceUpdate(result.newSpotPrice);
         }
 
         // Emit delta update if it has been updated
-        if (currentDelta != newDelta) {
-            emit DeltaUpdate(newDelta);
+        if (currentDelta != result.newDelta) {
+            emit DeltaUpdate(result.newDelta);
         }
     }
 
@@ -507,61 +585,76 @@ abstract contract LSSVMPair is
         @param numNFTs The amount of NFTs to send to the the pair
         @param minExpectedTokenOutput The minimum acceptable token received by the sender. If the actual
         amount is less than this value, the transaction will be reverted.
-        @param protocolFee The percentage of protocol fee to be taken, as a percentage
-        @return protocolFee The amount of tokens to send as protocol fee
-        @return outputAmount The amount of tokens total tokens receive
+        @param _bondingCurve bondingCurve
+        @param _factory factory
+        @return calculateSellResult calculate sell result
      */
     function _calculateSellInfoAndUpdatePoolParams(
         uint256 numNFTs,
         uint256 minExpectedTokenOutput,
         ICurve _bondingCurve,
         ILSSVMPairFactoryLike _factory
-    ) internal returns (uint256 protocolFee, uint256 outputAmount) {
-        CurveErrorCodes.Error error;
+    ) internal returns (
+        CalculateSellResult memory calculateSellResult
+    ) {
         // Save on 2 SLOADs by caching
         uint128 currentSpotPrice = spotPrice;
-        uint128 newSpotPrice;
         uint128 currentDelta = delta;
-        uint128 newDelta;
-        (
-            error,
-            newSpotPrice,
-            newDelta,
-            outputAmount,
-            protocolFee
-        ) = _bondingCurve.getSellInfo(
-            currentSpotPrice,
-            currentDelta,
-            numNFTs,
-            fee,
-            _factory.protocolFeeMultiplier()
+
+        IERC721 _nft = nft();
+
+        address[] memory nftOperators = _factory.getNftOperators(address(_nft));
+        uint256[] memory operatorProtocolFeeMultipliers = new uint256[](nftOperators.length);
+        calculateSellResult.operatorProtocolFeeRecipients = new address[](nftOperators.length);
+        for (uint256 i = 0; i < nftOperators.length; ) {
+            operatorProtocolFeeMultipliers[i] = _factory.operatorProtocolFeeMultipliers(address(_nft), nftOperators[i]);
+            calculateSellResult.operatorProtocolFeeRecipients[i] = _factory.operatorProtocolFeeRecipients(address(_nft), nftOperators[i]);
+            
+            unchecked {
+                ++i;
+            }
+        }
+
+        CurveErrorCodes.SellResult memory result = _bondingCurve.getSellInfo(
+            CurveErrorCodes.SellParam({
+                spotPrice: currentSpotPrice,
+                delta: currentDelta,
+                numItems: numNFTs,
+                feeMultiplier: fee,
+                protocolFeeMultiplier: _factory.protocolFeeMultiplier(),
+                operatorProtocolFeeMultipliers: operatorProtocolFeeMultipliers
+            })
         );
 
+        calculateSellResult.outputAmount = result.outputValue;
+        calculateSellResult.protocolFee = result.protocolFee;
+        calculateSellResult.operatorProtocolFees = result.operatorProtocolFees;
+
         // Revert if bonding curve had an error
-        if (error != CurveErrorCodes.Error.OK) {
-            revert BondingCurveError(error);
+        if (result.error != CurveErrorCodes.Error.OK) {
+            revert BondingCurveError(result.error);
         }
 
         // Revert if output is too little
         require(
-            outputAmount >= minExpectedTokenOutput,
+            calculateSellResult.outputAmount >= minExpectedTokenOutput,
             "Out too little tokens"
         );
 
         // Consolidate writes to save gas
-        if (currentSpotPrice != newSpotPrice || currentDelta != newDelta) {
-            spotPrice = newSpotPrice;
-            delta = newDelta;
+        if (currentSpotPrice != result.newSpotPrice || currentDelta != result.newDelta) {
+            spotPrice = result.newSpotPrice;
+            delta = result.newDelta;
         }
 
         // Emit spot price update if it has been updated
-        if (currentSpotPrice != newSpotPrice) {
-            emit SpotPriceUpdate(newSpotPrice);
+        if (currentSpotPrice != result.newSpotPrice) {
+            emit SpotPriceUpdate(result.newSpotPrice);
         }
 
         // Emit delta update if it has been updated
-        if (currentDelta != newDelta) {
-            emit DeltaUpdate(newDelta);
+        if (currentDelta != result.newDelta) {
+            emit DeltaUpdate(result.newDelta);
         }
     }
 
@@ -572,13 +665,30 @@ abstract contract LSSVMPair is
         @param routerCaller If called from LSSVMRouter, store the original caller
         @param _factory The LSSVMPairFactory which stores LSSVMRouter allowlist info
         @param protocolFee The protocol fee to be paid
+        @param operatorProtocolFees The operator protocol fee to be paid
      */
     function _pullTokenInputAndPayProtocolFee(
         uint256 inputAmount,
         bool isRouter,
         address routerCaller,
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        uint256 protocolFee,
+        uint256[] memory operatorProtocolFees
+    ) internal virtual;
+
+
+    /**
+        @notice _payOperatorProtocolFee
+        @param isRouter -
+        @param routerCaller -
+        @param operatorProtocolFees -
+        @param operatorProtocolFeeRecipients -
+     */
+    function _payOperatorProtocolFee(
+        bool isRouter,
+        address routerCaller,
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
     ) internal virtual;
 
     /**
@@ -594,6 +704,14 @@ abstract contract LSSVMPair is
     function _payProtocolFeeFromPair(
         ILSSVMPairFactoryLike _factory,
         uint256 protocolFee
+    ) internal virtual;
+
+    /**
+        @notice Sends operator protocol fee (if it exists) back to the LSSVMPairFactory from the pair
+     */
+    function _payOperatorProtocolFeeFromPair(
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
     ) internal virtual;
 
     /**

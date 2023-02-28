@@ -7,6 +7,7 @@ import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 // @dev Solmate's ERC20 is used instead of OZ's ERC20 so we can use safeTransferLib for cheaper safeTransfers for
 // ETH and ERC20 tokens
@@ -33,6 +34,7 @@ contract LSSVMPairFactory is Ownable, ILSSVMPairFactoryLike {
     using LSSVMPairCloner for address;
     using SafeTransferLib for address payable;
     using SafeTransferLib for ERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     bytes4 private constant INTERFACE_ID_ERC721_ENUMERABLE =
         type(IERC721Enumerable).interfaceId;
@@ -55,7 +57,13 @@ contract LSSVMPairFactory is Ownable, ILSSVMPairFactoryLike {
     // Units are in base 1e18
     uint256 public override protocolFeeMultiplier;
 
-    mapping(ICurve => bool) public bondingCurveAllowed;
+     // nft operator
+    mapping(address => mapping(address => address)) public override operatorProtocolFeeRecipients;
+    mapping(address => mapping(address => uint256)) public override operatorProtocolFeeMultipliers;
+
+    mapping(address => EnumerableSet.AddressSet) internal nftOperators;
+
+    mapping(ICurve => bool) public  bondingCurveAllowed;
     mapping(address => bool) public override callAllowed;
     struct RouterStatus {
         bool allowed;
@@ -92,6 +100,33 @@ contract LSSVMPairFactory is Ownable, ILSSVMPairFactoryLike {
         protocolFeeRecipient = _protocolFeeRecipient;
         require(_protocolFeeMultiplier <= MAX_PROTOCOL_FEE, "Fee too large");
         protocolFeeMultiplier = _protocolFeeMultiplier;
+    }
+
+    function getNftOperators(address nft) external view returns (address[] memory){
+        return nftOperators[nft].values();
+    }
+
+    function authorize(address nft, address operator) external onlyOwner {
+        if (!nftOperators[nft].contains(operator)) {
+            nftOperators[nft].add(operator);
+        }
+    }
+
+    function unauthorize(address nft, address operator) external onlyOwner {
+        delete operatorProtocolFeeRecipients[nft][operator];
+        delete operatorProtocolFeeMultipliers[nft][operator];
+        nftOperators[nft].remove(operator);
+
+    }
+
+    function setOperatorProtocolFee (
+        address nft, 
+        address operatorProtocolFeeRecipient, 
+        uint256 operatorProtocolFeeMultiplier
+    ) external {
+        require(nftOperators[nft].contains(msg.sender), "unauthorized operator");
+        operatorProtocolFeeRecipients[nft][msg.sender] = operatorProtocolFeeRecipient;
+        operatorProtocolFeeMultipliers[nft][msg.sender] = operatorProtocolFeeMultiplier;
     }
 
     /**

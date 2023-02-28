@@ -381,9 +381,12 @@ contract LSSVMRouter {
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate actual cost per swap
-            (error, , , pairCost, ) = swapList[i].swapInfo.pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].swapInfo.pair.getBuyNFTQuote(
                 swapList[i].swapInfo.numItems
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // If within our maxCost and no error, proceed
             if (
@@ -437,14 +440,16 @@ contract LSSVMRouter {
         remainingValue = msg.value;
         uint256 pairCost;
         CurveErrorCodes.Error error;
-
         // Try doing each swap
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate actual cost per swap
-            (error, , , pairCost, ) = swapList[i].swapInfo.pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].swapInfo.pair.getBuyNFTQuote(
                 swapList[i].swapInfo.nftIds.length
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // If within our maxCost and no error, proceed
             if (
@@ -504,9 +509,12 @@ contract LSSVMRouter {
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate actual cost per swap
-            (error, , , pairCost, ) = swapList[i].swapInfo.pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].swapInfo.pair.getBuyNFTQuote(
                 swapList[i].swapInfo.numItems
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // If within our maxCost and no error, proceed
             if (
@@ -546,14 +554,16 @@ contract LSSVMRouter {
         remainingValue = inputAmount;
         uint256 pairCost;
         CurveErrorCodes.Error error;
-
         // Try doing each swap
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate actual cost per swap
-            (error, , , pairCost, ) = swapList[i].swapInfo.pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].swapInfo.pair.getBuyNFTQuote(
                 swapList[i].swapInfo.nftIds.length
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // If within our maxCost and no error, proceed
             if (
@@ -598,10 +608,14 @@ contract LSSVMRouter {
             // Locally scoped to avoid stack too deep error
             {
                 CurveErrorCodes.Error error;
-                (error, , , pairOutput, ) = swapList[i]
+                CurveErrorCodes.SellResult memory result = swapList[i]
                     .swapInfo
                     .pair
                     .getSellNFTQuote(swapList[i].swapInfo.nftIds.length);
+                
+                error = result.error;
+                pairOutput = result.outputValue;
+
                 if (error != CurveErrorCodes.Error.OK) {
                     unchecked {
                         ++i;
@@ -609,7 +623,6 @@ contract LSSVMRouter {
                     continue;
                 }
             }
-
             // If at least equal to our minOutput, proceed
             if (pairOutput >= swapList[i].minOutput) {
                 // Do the swap and update outputAmount with how many tokens we got
@@ -655,13 +668,16 @@ contract LSSVMRouter {
             uint256 numSwaps = params.tokenToNFTTrades.length;
             for (uint256 i; i < numSwaps; ) {
                 // Calculate actual cost per swap
-                (error, , , pairCost, ) = params
+                CurveErrorCodes.BuyResult memory result = params
                     .tokenToNFTTrades[i]
                     .swapInfo
                     .pair
                     .getBuyNFTQuote(
                         params.tokenToNFTTrades[i].swapInfo.nftIds.length
                     );
+
+                error = result.error;
+                pairCost = result.inputValue;
 
                 // If within our maxCost and no error, proceed
                 if (
@@ -702,13 +718,17 @@ contract LSSVMRouter {
                 // Locally scoped to avoid stack too deep error
                 {
                     CurveErrorCodes.Error error;
-                    (error, , , pairOutput, ) = params
+                    CurveErrorCodes.SellResult memory result = params
                         .nftToTokenTrades[i]
                         .swapInfo
                         .pair
                         .getSellNFTQuote(
                             params.nftToTokenTrades[i].swapInfo.nftIds.length
                         );
+
+                    error = result.error;
+                    pairOutput = result.outputValue;
+
                     if (error != CurveErrorCodes.Error.OK) {
                         unchecked {
                             ++i;
@@ -767,13 +787,16 @@ contract LSSVMRouter {
             uint256 numSwaps = params.tokenToNFTTrades.length;
             for (uint256 i; i < numSwaps; ) {
                 // Calculate actual cost per swap
-                (error, , , pairCost, ) = params
+                CurveErrorCodes.BuyResult memory result = params
                     .tokenToNFTTrades[i]
                     .swapInfo
                     .pair
                     .getBuyNFTQuote(
                         params.tokenToNFTTrades[i].swapInfo.nftIds.length
                     );
+
+                error = result.error;
+                pairCost = result.inputValue;
 
                 // If within our maxCost and no error, proceed
                 if (
@@ -807,13 +830,17 @@ contract LSSVMRouter {
                 // Locally scoped to avoid stack too deep error
                 {
                     CurveErrorCodes.Error error;
-                    (error, , , pairOutput, ) = params
+                    CurveErrorCodes.SellResult memory result = params
                         .nftToTokenTrades[i]
                         .swapInfo
                         .pair
                         .getSellNFTQuote(
                             params.nftToTokenTrades[i].swapInfo.nftIds.length
                         );
+                    
+                    error = result.error;
+                    pairOutput = result.outputValue;
+
                     if (error != CurveErrorCodes.Error.OK) {
                         unchecked {
                             ++i;
@@ -869,12 +896,13 @@ contract LSSVMRouter {
     ) external {
         // verify caller is a trusted pair contract
         require(factory.isPair(msg.sender, variant), "Not pair");
-
         // verify caller is an ERC20 pair
         require(
             variant == ILSSVMPairFactoryLike.PairVariant.ENUMERABLE_ERC20 ||
                 variant ==
-                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_ERC20,
+                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_ERC20 ||
+                variant ==
+                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_1155_ERC20,
             "Not ERC20 pair"
         );
 
@@ -962,9 +990,12 @@ contract LSSVMRouter {
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate the cost per swap first to send exact amount of ETH over, saves gas by avoiding the need to send back excess ETH
-            (error, , , pairCost, ) = swapList[i].pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].pair.getBuyNFTQuote(
                 swapList[i].numItems
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // Require no error
             require(error == CurveErrorCodes.Error.OK, "Bonding curve error");
@@ -1015,9 +1046,12 @@ contract LSSVMRouter {
         uint256 numSwaps = swapList.length;
         for (uint256 i; i < numSwaps; ) {
             // Calculate the cost per swap first to send exact amount of ETH over, saves gas by avoiding the need to send back excess ETH
-            (error, , , pairCost, ) = swapList[i].pair.getBuyNFTQuote(
+            CurveErrorCodes.BuyResult memory result = swapList[i].pair.getBuyNFTQuote(
                 swapList[i].nftIds.length
             );
+
+            error = result.error;
+            pairCost = result.inputValue;
 
             // Require no errors
             require(error == CurveErrorCodes.Error.OK, "Bonding curve error");
@@ -1155,5 +1189,25 @@ contract LSSVMRouter {
 
         // Aggregate slippage check
         require(outputAmount >= minOutput, "outputAmount too low");
+    }
+
+    function test(address nft) external view returns(address[] memory){
+        return factory.getNftOperators(nft);
+    }
+
+    function test1(address nft,address operator) external view returns(address){
+        return factory.operatorProtocolFeeRecipients(nft,operator);
+    }
+
+    function test2(address nft,address operator) external view returns(uint256){
+        return factory.operatorProtocolFeeMultipliers(nft,operator);
+    }
+
+    function test3(PairSwapAny calldata swapList) external pure returns(address){
+        return address(swapList.pair);
+    }
+
+    function test4() external view returns(uint256){
+        return factory.protocolFeeMultiplier();
     }
 }

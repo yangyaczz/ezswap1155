@@ -19,6 +19,12 @@ interface ILSSVMPairFactoryLike {
 
     function protocolFeeRecipient() external view returns (address payable);
 
+    function operatorProtocolFeeRecipients(address nft,address operator) external view returns (address);
+
+    function operatorProtocolFeeMultipliers(address nft,address operator) external view returns (uint256);
+
+    function getNftOperators(address nft) external view returns (address[] memory);
+
     function callAllowed(address target) external view returns (bool);
 
     function routerStatus(LSSVMRouter router)

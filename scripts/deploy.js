@@ -47,6 +47,18 @@ async function main() {
   console.log(`enumETHTem is ${enumETHTem.address} /// missEnumETHTem is ${missEnumETHTem.address}  `)
   console.log(`enumERC20Tem is ${enumERC20Tem.address} /// missEnumERC20Tem is ${missEnumERC20Tem.address}  `)
 
+  const MissEnum1155ETHTem = await hre.ethers.getContractFactory(
+    "LSSVMPair1155MissingEnumerableETH"
+  );
+  const missEnum1155ETHTem = await MissEnum1155ETHTem.deploy();
+  await missEnum1155ETHTem.deployed();
+
+  const MissEnum1155ERC20Tem = await hre.ethers.getContractFactory(
+    "LSSVMPair1155MissingEnumerableERC20"
+  );
+  const missEnum1155ERC20Tem = await MissEnum1155ERC20Tem.deploy();
+  await missEnum1155ERC20Tem.deployed();
+
   // =======================================================
   const _protocolFeeRecipient = owner.address;
   const _protocolFeeMultiplier = hre.ethers.utils.parseEther("0.01"); 
@@ -57,6 +69,8 @@ async function main() {
     missEnumETHTem.address,
     enumERC20Tem.address,
     missEnumERC20Tem.address,
+    missEnum1155ETHTem.address,
+    missEnum1155ERC20Tem.address,
     _protocolFeeRecipient,
     _protocolFeeMultiplier
   );
@@ -89,9 +103,17 @@ async function main() {
   const setfee = await pairfactory.changeProtocolFeeMultiplier(hre.ethers.utils.parseEther("0.005"));
   console.log(`set protocol fee to 0.005 `)
 
+  await pairfactory.authorize("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D",owner.address);
+  const test = await pairrouter.test("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D")
+  console.log("test:",test)
 
-
-
+  await pairfactory.setOperatorProtocolFee("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D",owner.address,1);
+  const test1 = await pairrouter.test1("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D",owner.address)
+  const test2 = await pairrouter.test2("0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D",owner.address)
+  const test3 = await pairrouter.test3(['0xBC4CA0EdA7647A8aB7C2061c2E118A18a936f13D','1'])
+  console.log("test1:",test1)
+  console.log("test2:",test2)
+  console.log("test3:",test3)
 }
 
 

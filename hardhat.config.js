@@ -4,7 +4,7 @@ require("dotenv").config()
 
 
 const { setGlobalDispatcher, ProxyAgent } = require('undici')
-const proxyAgent = new ProxyAgent('http://127.0.0.1:7890')
+const proxyAgent = new ProxyAgent('http://127.0.0.1:1087')
 setGlobalDispatcher(proxyAgent)
 
 
@@ -50,6 +50,16 @@ module.exports = {
   //     ],
   //   }
   // },
+  networks: {
+    hardhat: {
+      allowUnlimitedContractSize: false,
+      chainId: 1,
+      forking: {
+        url: `https://eth-mainnet.g.alchemy.com/v2/kNPJaYqMx7BA9TcDDJQ8pS5WcLqXGiG7`,
+        blockNumber: 16695137,
+      },
+    },
+  },
   etherscan: {
     apiKey: ethscanKey
   },

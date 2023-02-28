@@ -24,10 +24,17 @@ abstract contract LSSVMPair1155ETH is LSSVMPair1155 {
         bool, /*isRouter*/
         address, /*routerCaller*/
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        uint256 protocolFee,
+        uint256[] memory operatorProtocolFees
     ) internal override {
         require(msg.value >= inputAmount, "Sent too little ETH");
 
+        for (uint256 i = 0; i < operatorProtocolFees.length; ) {
+            inputAmount -= operatorProtocolFees[i];
+            unchecked {
+                ++i;
+            }
+        }
         // Transfer inputAmount ETH to assetRecipient if it's been set
         address payable _assetRecipient = getAssetRecipient();
         if (_assetRecipient != address(this)) {
@@ -43,6 +50,25 @@ abstract contract LSSVMPair1155ETH is LSSVMPair1155 {
 
             if (protocolFee > 0) {
                 payable(address(_factory)).safeTransferETH(protocolFee);
+            }
+        }
+    }
+
+    /// @inheritdoc LSSVMPair1155
+    function _payOperatorProtocolFee(
+        bool,
+        address,
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
+    ) internal override {
+        for (uint256 i = 0; i < operatorProtocolFeeRecipients.length; ) {
+            address operatorProtocolFeeRecipient = operatorProtocolFeeRecipients[i];
+            uint256 operatorProtocolFeeMultiplier = operatorProtocolFees[i];
+            if(operatorProtocolFeeMultiplier > 0){
+                payable(operatorProtocolFeeRecipient).safeTransferETH(operatorProtocolFeeMultiplier);
+            }
+            unchecked {
+                ++i;
             }
         }
     }
@@ -69,6 +95,23 @@ abstract contract LSSVMPair1155ETH is LSSVMPair1155 {
 
             if (protocolFee > 0) {
                 payable(address(_factory)).safeTransferETH(protocolFee);
+            }
+        }
+    }
+
+    /// @inheritdoc LSSVMPair1155
+    function _payOperatorProtocolFeeFromPair(
+        uint256[] memory operatorProtocolFees,
+        address[] memory operatorProtocolFeeRecipients
+    ) internal override {
+        for (uint256 i = 0; i < operatorProtocolFeeRecipients.length; ) {
+            address operatorProtocolFeeRecipient = operatorProtocolFeeRecipients[i];
+            uint256 operatorProtocolFee = operatorProtocolFees[i];
+            if(operatorProtocolFee > 0){
+                payable(operatorProtocolFeeRecipient).safeTransferETH(operatorProtocolFee);
+            }
+            unchecked {
+                ++i;
             }
         }
     }

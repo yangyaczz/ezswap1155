@@ -47,7 +47,7 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         pure
@@ -57,13 +57,13 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 inputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         )
     {
         // NOTE: we assume delta is > 1, as checked by validateDelta()
         // We only calculate changes for buying 1 or more NFTs
         if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+            return (Error.INVALID_NUMITEMS, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
 
         uint256 deltaPowN = uint256(delta).fpow(
@@ -77,7 +77,7 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
             FixedPointMathLib.WAD
         );
         if (newSpotPrice_ > type(uint128).max) {
-            return (Error.SPOT_PRICE_OVERFLOW, 0, 0, 0, 0);
+            return (Error.SPOT_PRICE_OVERFLOW, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
         newSpotPrice = uint128(newSpotPrice_);
 
@@ -103,17 +103,27 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
             FixedPointMathLib.WAD
         );
 
-        // Account for the protocol fee, a flat percentage of the buy amount
-        protocolFee = inputValue.fmul(
-            protocolFeeMultiplier,
-            FixedPointMathLib.WAD
-        );
+        protocolFeeStruct.protocolFeeAmount = new uint[](protocolFeeMultipliers.length);
+
+        // Add the protocol fee to the required input amount
+        for (uint256 i = 0; i < protocolFeeMultipliers.length; ) {
+            protocolFeeStruct.totalProtocolFeeMultiplier += protocolFeeMultipliers[i];
+
+            protocolFeeStruct.protocolFeeAmount[i] = inputValue.fmul(
+                protocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+            protocolFeeStruct.totalProtocolFeeAmount +=  protocolFeeStruct.protocolFeeAmount[i];
+
+            unchecked {
+                ++i;
+            }
+        }
 
         // Account for the trade fee, only for Trade pools
         inputValue += inputValue.fmul(feeMultiplier, FixedPointMathLib.WAD);
 
-        // Add the protocol fee to the required input amount
-        inputValue += protocolFee;
+        inputValue += protocolFeeStruct.totalProtocolFeeAmount;
 
         // Keep delta the same
         newDelta = delta;
@@ -133,7 +143,7 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         pure
@@ -143,14 +153,14 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 outputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         )
     {
         // NOTE: we assume delta is > 1, as checked by validateDelta()
 
         // We only calculate changes for buying 1 or more NFTs
         if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+            return (Error.INVALID_NUMITEMS, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
 
         uint256 invDelta = FixedPointMathLib.WAD.fdiv(
@@ -181,16 +191,27 @@ contract ExponentialCurve is ICurve, CurveErrorCodes {
         );
 
         // Account for the protocol fee, a flat percentage of the sell amount
-        protocolFee = outputValue.fmul(
-            protocolFeeMultiplier,
-            FixedPointMathLib.WAD
-        );
+        protocolFeeStruct.protocolFeeAmount = new uint[](protocolFeeMultipliers.length);
+
+        for (uint256 i = 0; i < protocolFeeMultipliers.length; ) {
+            protocolFeeStruct.totalProtocolFeeMultiplier += protocolFeeMultipliers[i];
+
+            protocolFeeStruct.protocolFeeAmount[i] = outputValue.fmul(
+                protocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+            protocolFeeStruct.totalProtocolFeeAmount +=  protocolFeeStruct.protocolFeeAmount[i];
+
+            unchecked {
+                ++i;
+            }
+        }
 
         // Account for the trade fee, only for Trade pools
         outputValue -= outputValue.fmul(feeMultiplier, FixedPointMathLib.WAD);
 
         // Remove the protocol fee from the output amount
-        outputValue -= protocolFee;
+        outputValue -= protocolFeeStruct.totalProtocolFeeAmount;
 
         // Keep delta the same
         newDelta = delta;

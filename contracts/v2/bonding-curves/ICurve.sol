@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {CurveErrorCodes} from "./CurveErrorCodes.sol";
 
 interface ICurve {
+
     /**
         @notice Validates if a delta value is valid for the curve. The criteria for
         validity can be different for each type of curve, for instance ExponentialCurve
@@ -30,19 +31,19 @@ interface ICurve {
         @param delta The delta parameter of the pair, what it means depends on the curve
         @param numItems The number of NFTs the user is buying from the pair
         @param feeMultiplier Determines how much fee the LP takes from this trade, 18 decimals
-        @param protocolFeeMultiplier Determines how much fee the protocol takes from this trade, 18 decimals
+        @param protocolFeeMultipliers protocol fee multipliers
         @return error Any math calculation errors, only Error.OK means the returned values are valid
         @return newSpotPrice The updated selling spot price, in tokens
         @return newDelta The updated delta, used to parameterize the bonding curve
         @return inputValue The amount that the user should pay, in tokens
-        @return protocolFee The amount of fee to send to the protocol, in tokens
+        @return protocolFeeStruct protocol fee struct
      */
     function getBuyInfo(
         uint128 spotPrice,
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         view
@@ -51,7 +52,7 @@ interface ICurve {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 inputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         );
 
     /**
@@ -61,19 +62,19 @@ interface ICurve {
         @param delta The delta parameter of the pair, what it means depends on the curve
         @param numItems The number of NFTs the user is selling to the pair
         @param feeMultiplier Determines how much fee the LP takes from this trade, 18 decimals
-        @param protocolFeeMultiplier Determines how much fee the protocol takes from this trade, 18 decimals
+        @param protocolFeeMultipliers protocol fee multipliers
         @return error Any math calculation errors, only Error.OK means the returned values are valid
         @return newSpotPrice The updated selling spot price, in tokens
         @return newDelta The updated delta, used to parameterize the bonding curve
         @return outputValue The amount that the user should receive, in tokens
-        @return protocolFee The amount of fee to send to the protocol, in tokens
+        @return protocolFeeStruct protocol fee struct
      */
     function getSellInfo(
         uint128 spotPrice,
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         view
@@ -82,6 +83,6 @@ interface ICurve {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 outputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         );
 }

@@ -7,4 +7,18 @@ contract CurveErrorCodes {
         INVALID_NUMITEMS, // The numItem value is 0
         SPOT_PRICE_OVERFLOW // The updated spot price doesn't fit into 128 bits
     }
+
+    /**
+     *  @return totalProtocolFeeMultiplier totalProtocol fee multiplier
+     *  @return totalProtocolFeeAmount total protocol fee amount
+     *  @return protocolFeeAmount protocol fee amount
+     *  @return protocolFeeReceiver protocol fee receiver
+     */
+    struct ProtocolFeeStruct {
+        uint totalProtocolFeeMultiplier;
+        uint totalProtocolFeeAmount;
+        uint[] protocolFeeAmount;
+        address[] protocolFeeReceiver;
+    }
+
 }

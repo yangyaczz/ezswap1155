@@ -53,7 +53,7 @@ contract XykCurve is ICurve, CurveErrorCodes {
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         pure
@@ -63,11 +63,11 @@ contract XykCurve is ICurve, CurveErrorCodes {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 inputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         )
     {
         if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+            return (Error.INVALID_NUMITEMS, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
 
         // get the pair's virtual nft and eth/erc20 reserves
@@ -76,23 +76,36 @@ contract XykCurve is ICurve, CurveErrorCodes {
 
         // If numItems is too large, we will get divide by zero error
         if (numItems >= nftBalance) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+            return (Error.INVALID_NUMITEMS, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
 
         // calculate the amount to send in
         uint256 inputValueWithoutFee = (numItems * tokenBalance) /
             (nftBalance - numItems);
-
-        // add the fees to the amount to send in
-        protocolFee = inputValueWithoutFee.fmul(
-            protocolFeeMultiplier,
-            FixedPointMathLib.WAD
-        );
+        
         uint256 fee = inputValueWithoutFee.fmul(
             feeMultiplier,
             FixedPointMathLib.WAD
         );
-        inputValue = inputValueWithoutFee + fee + protocolFee;
+
+        protocolFeeStruct.protocolFeeAmount = new uint[](protocolFeeMultipliers.length);
+
+        // Add the protocol fee to the required input amount
+        for (uint256 i = 0; i < protocolFeeMultipliers.length; ) {
+            protocolFeeStruct.totalProtocolFeeMultiplier += protocolFeeMultipliers[i];
+
+            protocolFeeStruct.protocolFeeAmount[i] = inputValue.fmul(
+                protocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+            protocolFeeStruct.totalProtocolFeeAmount +=  protocolFeeStruct.protocolFeeAmount[i];
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        inputValue = inputValueWithoutFee + fee + protocolFeeStruct.totalProtocolFeeAmount;
 
         // set the new virtual reserves
         newSpotPrice = uint128(spotPrice + inputValueWithoutFee); // token reserve
@@ -110,7 +123,7 @@ contract XykCurve is ICurve, CurveErrorCodes {
         uint128 delta,
         uint256 numItems,
         uint256 feeMultiplier,
-        uint256 protocolFeeMultiplier
+        uint[] memory protocolFeeMultipliers
     )
         external
         pure
@@ -120,11 +133,11 @@ contract XykCurve is ICurve, CurveErrorCodes {
             uint128 newSpotPrice,
             uint128 newDelta,
             uint256 outputValue,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
         )
     {
         if (numItems == 0) {
-            return (Error.INVALID_NUMITEMS, 0, 0, 0, 0);
+            return (Error.INVALID_NUMITEMS, 0, 0, 0, CurveErrorCodes.ProtocolFeeStruct(0, 0, new uint[](0), new address[](0)));
         }
 
         // get the pair's virtual nft and eth/erc20 balance
@@ -135,16 +148,29 @@ contract XykCurve is ICurve, CurveErrorCodes {
         uint256 outputValueWithoutFee = (numItems * tokenBalance) /
             (nftBalance + numItems);
 
-        // subtract fees from amount to send out
-        protocolFee = outputValueWithoutFee.fmul(
-            protocolFeeMultiplier,
-            FixedPointMathLib.WAD
-        );
         uint256 fee = outputValueWithoutFee.fmul(
             feeMultiplier,
             FixedPointMathLib.WAD
         );
-        outputValue = outputValueWithoutFee - fee - protocolFee;
+
+        // subtract fees from amount to send out
+        protocolFeeStruct.protocolFeeAmount = new uint[](protocolFeeMultipliers.length);
+
+        for (uint256 i = 0; i < protocolFeeMultipliers.length; ) {
+            protocolFeeStruct.totalProtocolFeeMultiplier += protocolFeeMultipliers[i];
+
+            protocolFeeStruct.protocolFeeAmount[i] = outputValue.fmul(
+                protocolFeeMultipliers[i],
+                FixedPointMathLib.WAD
+            );
+            protocolFeeStruct.totalProtocolFeeAmount +=  protocolFeeStruct.protocolFeeAmount[i];
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        outputValue = outputValueWithoutFee - fee - protocolFeeStruct.totalProtocolFeeAmount;
 
         // set the new virtual reserves
         newSpotPrice = uint128(spotPrice - outputValueWithoutFee); // token reserve

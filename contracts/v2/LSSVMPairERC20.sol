@@ -39,7 +39,7 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
         bool isRouter,
         address routerCaller,
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal override {
         require(msg.value == 0, "ERC20 pair");
 
@@ -62,25 +62,35 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
                 _token,
                 routerCaller,
                 _assetRecipient,
-                inputAmount - protocolFee,
+                inputAmount - protocolFeeStruct.totalProtocolFeeAmount,
                 pairVariant()
             );
 
             // Verify token transfer (protect pair against malicious router)
             require(
                 _token.balanceOf(_assetRecipient) - beforeBalance ==
-                    inputAmount - protocolFee,
+                    inputAmount - protocolFeeStruct.totalProtocolFeeAmount,
                 "ERC20 not transferred in"
             );
 
-            router.pairTransferERC20From(
-                _token,
-                routerCaller,
-                address(_factory),
-                protocolFee,
-                pairVariant()
-            );
+            
 
+            for (uint i = 0; i < protocolFeeStruct.protocolFeeAmount.length;) {
+                uint protocolFee = protocolFeeStruct.protocolFeeAmount[i];
+
+                if (protocolFee > 0) {
+                    router.pairTransferERC20From(
+                        _token,
+                        routerCaller,
+                        protocolFeeStruct.protocolFeeReceiver[i],
+                        protocolFee,
+                        pairVariant()
+                    );
+                }
+                unchecked {
+                    ++i;
+                }
+            }
             // Note: no check for factory balance's because router is assumed to be set by factory owner
             // so there is no incentive to *not* pay protocol fee
         } else {
@@ -88,16 +98,23 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
             _token.safeTransferFrom(
                 msg.sender,
                 _assetRecipient,
-                inputAmount - protocolFee
+                inputAmount - protocolFeeStruct.totalProtocolFeeAmount
             );
 
             // Take protocol fee (if it exists)
-            if (protocolFee > 0) {
-                _token.safeTransferFrom(
+            for (uint i = 0; i < protocolFeeStruct.protocolFeeAmount.length;) {
+                uint protocolFee = protocolFeeStruct.protocolFeeAmount[i];
+
+                if (protocolFee > 0) {
+                    _token.safeTransferFrom(
                     msg.sender,
-                    address(_factory),
+                    protocolFeeStruct.protocolFeeReceiver[i],
                     protocolFee
                 );
+                }
+                unchecked {
+                    ++i;
+                }
             }
         }
     }
@@ -109,20 +126,26 @@ abstract contract LSSVMPairERC20 is LSSVMPair {
 
     /// @inheritdoc LSSVMPair
     function _payProtocolFeeFromPair(
-        ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal override {
-        // Take protocol fee (if it exists)
-        if (protocolFee > 0) {
-            ERC20 _token = token();
+        ERC20 _token = token();
 
+        // Take protocol fee (if it exists)
+        for (uint i = 0; i < protocolFeeStruct.protocolFeeAmount.length;) {
+            uint protocolFee = protocolFeeStruct.protocolFeeAmount[i];
             // Round down to the actual token balance if there are numerical stability issues with the bonding curve calculations
             uint256 pairTokenBalance = _token.balanceOf(address(this));
             if (protocolFee > pairTokenBalance) {
                 protocolFee = pairTokenBalance;
             }
             if (protocolFee > 0) {
-                _token.safeTransfer(address(_factory), protocolFee); 
+                _token.safeTransfer(
+                    protocolFeeStruct.protocolFeeReceiver[i],
+                    protocolFee
+                );
+            }
+            unchecked {
+                ++i;
             }
         }
     }

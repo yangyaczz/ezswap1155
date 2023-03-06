@@ -874,7 +874,9 @@ contract LSSVMRouter {
         require(
             variant == ILSSVMPairFactoryLike.PairVariant.ENUMERABLE_ERC20 ||
                 variant ==
-                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_ERC20,
+                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_ERC20 ||
+                variant ==
+                ILSSVMPairFactoryLike.PairVariant.MISSING_ENUMERABLE_1155_ERC20,
             "Not ERC20 pair"
         );
 

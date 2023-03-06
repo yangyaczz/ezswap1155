@@ -7,6 +7,7 @@ import {SafeTransferLib} from "@rari-capital/solmate/src/utils/SafeTransferLib.s
 import {LSSVMPair} from "./LSSVMPair.sol";
 import {ILSSVMPairFactoryLike} from "./ILSSVMPairFactoryLike.sol";
 import {ICurve} from "./bonding-curves/ICurve.sol";
+import {CurveErrorCodes} from "./bonding-curves/CurveErrorCodes.sol";
 
 /**
     @title An NFT/Token pair where the token is ETH
@@ -24,25 +25,28 @@ abstract contract LSSVMPairETH is LSSVMPair {
         bool, /*isRouter*/
         address, /*routerCaller*/
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal override {
         require(msg.value >= inputAmount, "Sent too little ETH");
 
         // Transfer inputAmount ETH to assetRecipient if it's been set
         address payable _assetRecipient = getAssetRecipient();
         if (_assetRecipient != address(this)) {
-            _assetRecipient.safeTransferETH(inputAmount - protocolFee);
+            _assetRecipient.safeTransferETH(inputAmount - protocolFeeStruct.totalProtocolFeeAmount);
         }
 
         // Take protocol fee
-        if (protocolFee > 0) {
-            // Round down to the actual ETH balance if there are numerical stability issues with the bonding curve calculations
+        for (uint i = 0; i < protocolFeeStruct.protocolFeeAmount.length;) {
+            uint protocolFee = protocolFeeStruct.protocolFeeAmount[i];
             if (protocolFee > address(this).balance) {
                 protocolFee = address(this).balance;
             }
 
             if (protocolFee > 0) {
-                payable(address(_factory)).safeTransferETH(protocolFee);
+                payable(protocolFeeStruct.protocolFeeReceiver[i]).safeTransferETH(protocolFeeStruct.protocolFeeAmount[i]);
+            }
+            unchecked {
+                ++i;
             }
         }
     }
@@ -57,18 +61,21 @@ abstract contract LSSVMPairETH is LSSVMPair {
 
     /// @inheritdoc LSSVMPair
     function _payProtocolFeeFromPair(
-        ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal override {
         // Take protocol fee
-        if (protocolFee > 0) {
+        for (uint i = 0; i < protocolFeeStruct.protocolFeeAmount.length;) {
+            uint protocolFee = protocolFeeStruct.protocolFeeAmount[i];
             // Round down to the actual ETH balance if there are numerical stability issues with the bonding curve calculations
             if (protocolFee > address(this).balance) {
                 protocolFee = address(this).balance;
             }
 
             if (protocolFee > 0) {
-                payable(address(_factory)).safeTransferETH(protocolFee);
+                payable(protocolFeeStruct.protocolFeeReceiver[i]).safeTransferETH(protocolFeeStruct.protocolFeeAmount[i]);
+            }
+            unchecked {
+                ++i;
             }
         }
     }

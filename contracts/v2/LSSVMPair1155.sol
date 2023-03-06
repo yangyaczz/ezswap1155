@@ -27,7 +27,7 @@ abstract contract LSSVMPair1155 is
     }
 
     // 90%, must <= 1 - MAX_PROTOCOL_FEE (set in LSSVMPairFactory)
-    uint256 internal constant MAX_FEE = 0.90e18;
+    uint256 internal constant MAX_FEE = 0.50e18;
 
     // The current price of the NFT
     // @dev This is generally used to mean the immediate sell price for the next marginal NFT.
@@ -92,7 +92,7 @@ abstract contract LSSVMPair1155 is
             require(_fee == 0, "Only Trade Pools can have nonzero fee");
             assetRecipient = _assetRecipient;
         } else if (_poolType == PoolType.TRADE) {
-            require(_fee < MAX_FEE, "Trade fee must be less than 90%");
+            require(_fee < MAX_FEE, "Trade fee must be less than 50%");
             require(
                 _assetRecipient == address(0),
                 "Trade pools can't set asset recipient"
@@ -147,14 +147,13 @@ abstract contract LSSVMPair1155 is
             );
             require((nftIds.length > 0), "Must ask for > 0 NFTs");
         }
-
         // Call bonding curve for pricing information
-        uint256 protocolFee;
-        (protocolFee, inputAmount) = _calculateBuyInfoAndUpdatePoolParams(
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct;
+
+        (protocolFeeStruct, inputAmount) = _calculateBuyInfoAndUpdatePoolParams(
             nftIds.length,
             maxExpectedTokenInput,
-            _bondingCurve,
-            _factory
+            _bondingCurve
         );
 
         _pullTokenInputAndPayProtocolFee(
@@ -162,7 +161,7 @@ abstract contract LSSVMPair1155 is
             isRouter,
             routerCaller,
             _factory,
-            protocolFee
+            protocolFeeStruct
         );
 
         _sendSpecificNFTsToRecipient(nft(), nftRecipient, nftIds);
@@ -207,17 +206,16 @@ abstract contract LSSVMPair1155 is
         }
 
         // Call bonding curve for pricing information
-        uint256 protocolFee;
-        (protocolFee, outputAmount) = _calculateSellInfoAndUpdatePoolParams(
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct;
+        (protocolFeeStruct, outputAmount) = _calculateSellInfoAndUpdatePoolParams(
             nftIds.length,
             minExpectedTokenOutput,
-            _bondingCurve,
-            _factory
+            _bondingCurve
         );
 
         _sendTokenOutput(tokenRecipient, outputAmount);
 
-        _payProtocolFeeFromPair(_factory, protocolFee);
+        _payProtocolFeeFromPair(protocolFeeStruct);
 
         _takeNFTsFromSender(nft(), nftIds, _factory, isRouter, routerCaller);
 
@@ -240,22 +238,28 @@ abstract contract LSSVMPair1155 is
             uint256 newSpotPrice,
             uint256 newDelta,
             uint256 inputAmount,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct  memory protocolFeeStruct
         )
     {
+        uint[] memory protocolFeeMultipliers;
+        address[] memory protocolFeeRecipients;
+        (protocolFeeMultipliers, protocolFeeRecipients) = _getProtocolFeeMultipliersAndRecipients();
+        
         (
             error,
             newSpotPrice,
             newDelta,
             inputAmount,
-            protocolFee
+            protocolFeeStruct
         ) = bondingCurve().getBuyInfo(
             spotPrice,
             delta,
             numNFTs,
             fee,
-            factory().protocolFeeMultiplier()
+            protocolFeeMultipliers
         );
+
+        protocolFeeStruct.protocolFeeReceiver = protocolFeeRecipients;
     }
 
     /**
@@ -270,22 +274,28 @@ abstract contract LSSVMPair1155 is
             uint256 newSpotPrice,
             uint256 newDelta,
             uint256 outputAmount,
-            uint256 protocolFee
+            CurveErrorCodes.ProtocolFeeStruct  memory protocolFeeStruct
         )
     {
+        uint[] memory protocolFeeMultipliers;
+        address[] memory protocolFeeRecipients;
+        (protocolFeeMultipliers, protocolFeeRecipients) = _getProtocolFeeMultipliersAndRecipients();
+
         (
             error,
             newSpotPrice,
             newDelta,
             outputAmount,
-            protocolFee
+            protocolFeeStruct
         ) = bondingCurve().getSellInfo(
             spotPrice,
             delta,
             numNFTs,
             fee,
-            factory().protocolFeeMultiplier()
+            protocolFeeMultipliers
         );
+
+        protocolFeeStruct.protocolFeeReceiver = protocolFeeRecipients;
     }
 
     /**
@@ -383,36 +393,45 @@ abstract contract LSSVMPair1155 is
         @notice Calculates the amount needed to be sent into the pair for a buy and adjusts spot price or delta if necessary
         @param numNFTs The amount of NFTs to purchase from the pair
         @param maxExpectedTokenInput The maximum acceptable cost from the sender. If the actual
-        amount is greater than this value, the transaction will be reverted.
-        @param protocolFee The percentage of protocol fee to be taken, as a percentage
-        @return protocolFee The amount of tokens to send as protocol fee
+        @param _bondingCurve _bondingCurve
+        @return protocolFeeStruct protocol fee struct
         @return inputAmount The amount of tokens total tokens receive
      */
     function _calculateBuyInfoAndUpdatePoolParams(
         uint256 numNFTs,
         uint256 maxExpectedTokenInput,
-        ICurve _bondingCurve,
-        ILSSVMPairFactoryLike _factory
-    ) internal returns (uint256 protocolFee, uint256 inputAmount) {
+        ICurve _bondingCurve
+    ) 
+        internal 
+        returns (
+            CurveErrorCodes.ProtocolFeeStruct  memory protocolFeeStruct,
+            uint256 inputAmount
+        ) 
+    {
         CurveErrorCodes.Error error;
         // Save on 2 SLOADs by caching
         uint128 currentSpotPrice = spotPrice;
         uint128 newSpotPrice;
         uint128 currentDelta = delta;
         uint128 newDelta;
+        uint[] memory protocolFeeMultipliers;
+        address[] memory protocolFeeRecipients;
+        (protocolFeeMultipliers, protocolFeeRecipients) = _getProtocolFeeMultipliersAndRecipients();
         (
             error,
             newSpotPrice,
             newDelta,
             inputAmount,
-            protocolFee
+            protocolFeeStruct
         ) = _bondingCurve.getBuyInfo(
             currentSpotPrice,
             currentDelta,
             numNFTs,
             fee,
-            _factory.protocolFeeMultiplier()
+            protocolFeeMultipliers
         );
+
+        protocolFeeStruct.protocolFeeReceiver = protocolFeeRecipients;
 
         // Revert if bonding curve had an error
         if (error != CurveErrorCodes.Error.OK) {
@@ -443,36 +462,43 @@ abstract contract LSSVMPair1155 is
         @notice Calculates the amount needed to be sent by the pair for a sell and adjusts spot price or delta if necessary
         @param numNFTs The amount of NFTs to send to the the pair
         @param minExpectedTokenOutput The minimum acceptable token received by the sender. If the actual
-        amount is less than this value, the transaction will be reverted.
-        @param protocolFee The percentage of protocol fee to be taken, as a percentage
-        @return protocolFee The amount of tokens to send as protocol fee
+        @param _bondingCurve bondingCurve
+        @return protocolFeeStruct protocol fee struct
         @return outputAmount The amount of tokens total tokens receive
      */
     function _calculateSellInfoAndUpdatePoolParams(
         uint256 numNFTs,
         uint256 minExpectedTokenOutput,
-        ICurve _bondingCurve,
-        ILSSVMPairFactoryLike _factory
-    ) internal returns (uint256 protocolFee, uint256 outputAmount) {
+        ICurve _bondingCurve
+    ) internal returns (
+            CurveErrorCodes.ProtocolFeeStruct  memory protocolFeeStruct,
+            uint256 outputAmount
+        ) 
+    {
         CurveErrorCodes.Error error;
         // Save on 2 SLOADs by caching
         uint128 currentSpotPrice = spotPrice;
         uint128 newSpotPrice;
         uint128 currentDelta = delta;
         uint128 newDelta;
+        uint[] memory protocolFeeMultipliers;
+        address[] memory protocolFeeRecipients;
+        (protocolFeeMultipliers, protocolFeeRecipients) = _getProtocolFeeMultipliersAndRecipients();
         (
             error,
             newSpotPrice,
             newDelta,
             outputAmount,
-            protocolFee
+            protocolFeeStruct
         ) = _bondingCurve.getSellInfo(
             currentSpotPrice,
             currentDelta,
             numNFTs,
             fee,
-            _factory.protocolFeeMultiplier()
+            protocolFeeMultipliers
         );
+
+        protocolFeeStruct.protocolFeeReceiver = protocolFeeRecipients;
 
         // Revert if bonding curve had an error
         if (error != CurveErrorCodes.Error.OK) {
@@ -508,14 +534,14 @@ abstract contract LSSVMPair1155 is
         @param isRouter Whether or not the caller is LSSVMRouter
         @param routerCaller If called from LSSVMRouter, store the original caller
         @param _factory The LSSVMPairFactory which stores LSSVMRouter allowlist info
-        @param protocolFee The protocol fee to be paid
+        @param protocolFeeStruct protocol fee struct
      */
     function _pullTokenInputAndPayProtocolFee(
         uint256 inputAmount,
         bool isRouter,
         address routerCaller,
         ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal virtual;
 
     /**
@@ -529,8 +555,7 @@ abstract contract LSSVMPair1155 is
         @notice Sends protocol fee (if it exists) back to the LSSVMPairFactory from the pair
      */
     function _payProtocolFeeFromPair(
-        ILSSVMPairFactoryLike _factory,
-        uint256 protocolFee
+        CurveErrorCodes.ProtocolFeeStruct memory protocolFeeStruct
     ) internal virtual;
 
     /**
@@ -722,7 +747,7 @@ abstract contract LSSVMPair1155 is
     function changeFee(uint96 newFee) external onlyOwner {
         PoolType _poolType = poolType();
         require(_poolType == PoolType.TRADE, "Only for Trade pools");
-        require(newFee < MAX_FEE, "Trade fee must be less than 90%");
+        require(newFee < MAX_FEE, "Trade fee must be less than 50%");
         if (fee != newFee) {
             fee = newFee;
             emit FeeUpdate(newFee);
@@ -809,5 +834,39 @@ abstract contract LSSVMPair1155 is
             _returnData := add(_returnData, 0x04)
         }
         return abi.decode(_returnData, (string)); // All that remains is the revert string
+    }
+
+    function _getProtocolFeeMultipliersAndRecipients()
+        internal
+        view
+        returns (
+            uint[] memory protocolFeeMultipliers,
+            address[] memory protocolFeeRecipients
+        )
+    {
+        ILSSVMPairFactoryLike _factory = factory();
+        // 1  calculate totalProtocolFeeMultiplier
+        address[] memory nftOperators = _factory.getNftOperators(address(nft()));
+
+        protocolFeeMultipliers = new uint[](nftOperators.length + 1);
+        protocolFeeRecipients = new address[](nftOperators.length + 1);
+
+        for (uint256 i = 0; i < nftOperators.length; ) {
+            protocolFeeMultipliers[i] = _factory.operatorProtocolFeeMultipliers(
+                address(nft()),
+                nftOperators[i]
+            );
+            protocolFeeRecipients[i] = _factory.operatorProtocolFeeRecipients(
+                address(nft()),
+                nftOperators[i]
+            );
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        protocolFeeMultipliers[protocolFeeMultipliers.length - 1] = _factory.protocolFeeMultiplier();
+        protocolFeeRecipients[protocolFeeRecipients.length - 1] = address(_factory);
     }
 }
